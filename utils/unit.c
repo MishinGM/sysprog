@@ -2,7 +2,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-
+//лол
 
 const char *current_test_name = "unknown";
 
