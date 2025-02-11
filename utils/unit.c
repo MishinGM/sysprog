@@ -7,12 +7,12 @@
 const char *current_test_name = "unknown";
 
 void unit_test_start(void) {
- 
+
     printf("-------- %s started --------\n", current_test_name);
 }
 
 void unit_test_finish(void) {
-
+  
     printf("-------- %s done --------\n", current_test_name);
 }
 
