@@ -1,11 +1,10 @@
-CC = gcc
-CFLAGS = -Wextra -Werror -Wall -Wno-gnu-folding-constant -g
-SRC = libcoro.c corobus.c test.c utils/unit.c
-INCLUDES = -I utils
-OUT = test
+GCC_FLAGS = -Wextra -Werror -Wall -Wno-gnu-folding-constant -g
 
 all:
-	$(CC) $(CFLAGS) $(SRC) $(INCLUDES) -o $(OUT)
+	gcc $(GCC_FLAGS) libcoro.c corobus.c test.c ../utils/unit.c \
+		-I ../utils -o test
 
-clean:
-	rm -f $(OUT)
+# For automatic testing systems to be able to just build whatever was submitted
+# by a student.
+test_glob:
+	gcc $(GCC_FLAGS) *.c ../utils/unit.c -I ../utils -o test
