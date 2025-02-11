@@ -1,9 +1,10 @@
 #ifndef UNIT_H
 #define UNIT_H
 
-#include <stdlib.h>
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdio.h>
+
+extern const char *current_test_name;
 
 void unit_test_start(void);
 void unit_test_finish(void);
