@@ -7,13 +7,11 @@
 
 static enum coro_bus_error_code gerr = CORO_BUS_ERR_NONE;
 
-enum coro_bus_error_code
-coro_bus_errno(void) {
+enum coro_bus_error_code coro_bus_errno(void) {
     return gerr;
 }
 
-void
-coro_bus_errno_set(enum coro_bus_error_code e) {
+void coro_bus_errno_set(enum coro_bus_error_code e) {
     gerr = e;
 }
 
@@ -23,8 +21,7 @@ struct data_vec {
     size_t cap;
 };
 
-static void
-dv_push_many(struct data_vec *v, const unsigned *src, size_t n) {
+static void dv_push_many(struct data_vec *v, const unsigned *src, size_t n) {
     if (v->sz + n > v->cap) {
         size_t nc = v->cap ? v->cap : 4;
         while (nc < v->sz + n)
@@ -36,21 +33,18 @@ dv_push_many(struct data_vec *v, const unsigned *src, size_t n) {
     v->sz += n;
 }
 
-static void
-dv_push(struct data_vec *v, unsigned x) {
+static void dv_push(struct data_vec *v, unsigned x) {
     dv_push_many(v, &x, 1);
 }
 
-static unsigned
-dv_pop(struct data_vec *v) {
+static unsigned dv_pop(struct data_vec *v) {
     unsigned x = v->d[0];
     v->sz--;
     memmove(v->d, v->d + 1, v->sz * sizeof(*v->d));
     return x;
 }
 
-static void
-dv_pop_many(struct data_vec *v, unsigned *dst, size_t n) {
+static void dv_pop_many(struct data_vec *v, unsigned *dst, size_t n) {
     memcpy(dst, v->d, n * sizeof(*dst));
     v->sz -= n;
     memmove(v->d, v->d + n, v->sz * sizeof(*v->d));
@@ -65,7 +59,6 @@ struct wqueue {
     struct rlist list;
 };
 
-
 struct channel {
     size_t limit;
     struct data_vec vec;
@@ -79,8 +72,7 @@ struct coro_bus {
     int cap;
 };
 
-static struct channel*
-bus_get(struct coro_bus *b, int i) {
+static struct channel *bus_get(struct coro_bus *b, int i) {
     if (i < 0 || i >= b->count) {
         gerr = CORO_BUS_ERR_NO_CHANNEL;
         return NULL;
@@ -93,16 +85,14 @@ bus_get(struct coro_bus *b, int i) {
     return c;
 }
 
-static void
-wq_wakeup_one(struct wqueue *w) {
+static void wq_wakeup_one(struct wqueue *w) {
     if (!rlist_empty(&w->list)) {
         struct wq_item *it = rlist_first_entry(&w->list, struct wq_item, link);
         coro_wakeup(it->coro);
     }
 }
 
-static void
-wq_wakeup_all(struct wqueue *w) {
+static void wq_wakeup_all(struct wqueue *w) {
     struct rlist *cur = w->list.next;
     while (cur != &w->list) {
         struct wq_item *it = rlist_entry(cur, struct wq_item, link);
@@ -111,8 +101,7 @@ wq_wakeup_all(struct wqueue *w) {
     }
 }
 
-static void
-chan_destroy(struct coro_bus *b, int i) {
+static void chan_destroy(struct coro_bus *b, int i) {
     struct channel *c = b->chs[i];
     if (!c) return;
     wq_wakeup_all(&c->senders);
@@ -122,13 +111,11 @@ chan_destroy(struct coro_bus *b, int i) {
     b->chs[i] = NULL;
 }
 
-struct coro_bus*
-coro_bus_new(void) {
+struct coro_bus *coro_bus_new(void) {
     return calloc(1, sizeof(struct coro_bus));
 }
 
-void
-coro_bus_delete(struct coro_bus *b) {
+void coro_bus_delete(struct coro_bus *b) {
     for (int i = 0; i < b->count; i++) {
         chan_destroy(b, i);
     }
@@ -136,8 +123,7 @@ coro_bus_delete(struct coro_bus *b) {
     free(b);
 }
 
-int
-coro_bus_channel_open(struct coro_bus *b, size_t lim) {
+int coro_bus_channel_open(struct coro_bus *b, size_t lim) {
     for (int i = 0; i < b->count; i++) {
         if (!b->chs[i]) {
             struct channel *c = calloc(1, sizeof(*c));
@@ -163,15 +149,13 @@ coro_bus_channel_open(struct coro_bus *b, size_t lim) {
     return b->count++;
 }
 
-void
-coro_bus_channel_close(struct coro_bus *b, int i) {
+void coro_bus_channel_close(struct coro_bus *b, int i) {
     struct channel *c = bus_get(b, i);
     if (!c) return;
     chan_destroy(b, i);
 }
 
-static int
-try_send_impl(struct channel *c, unsigned x) {
+static int try_send_impl(struct channel *c, unsigned x) {
     if (c->vec.sz >= c->limit) {
         gerr = CORO_BUS_ERR_WOULD_BLOCK;
         return -1;
@@ -181,15 +165,13 @@ try_send_impl(struct channel *c, unsigned x) {
     return 0;
 }
 
-int
-coro_bus_try_send(struct coro_bus *b, int i, unsigned x) {
+int coro_bus_try_send(struct coro_bus *b, int i, unsigned x) {
     struct channel *c = bus_get(b, i);
     if (!c) return -1;
     return try_send_impl(c, x);
 }
 
-int
-coro_bus_send(struct coro_bus *b, int i, unsigned x) {
+int coro_bus_send(struct coro_bus *b, int i, unsigned x) {
     while (1) {
         struct channel *c = bus_get(b, i);
         if (!c) return -1;
@@ -205,8 +187,7 @@ coro_bus_send(struct coro_bus *b, int i, unsigned x) {
     }
 }
 
-static int
-try_recv_impl(struct channel *c, unsigned *val) {
+static int try_recv_impl(struct channel *c, unsigned *val) {
     if (!c->vec.sz) {
         gerr = CORO_BUS_ERR_WOULD_BLOCK;
         return -1;
@@ -216,15 +197,13 @@ try_recv_impl(struct channel *c, unsigned *val) {
     return 0;
 }
 
-int
-coro_bus_try_recv(struct coro_bus *b, int i, unsigned *val) {
+int coro_bus_try_recv(struct coro_bus *b, int i, unsigned *val) {
     struct channel *c = bus_get(b, i);
     if (!c) return -1;
     return try_recv_impl(c, val);
 }
 
-int
-coro_bus_recv(struct coro_bus *b, int i, unsigned *val) {
+int coro_bus_recv(struct coro_bus *b, int i, unsigned *val) {
     while (1) {
         struct channel *c = bus_get(b, i);
         if (!c) return -1;
@@ -241,8 +220,7 @@ coro_bus_recv(struct coro_bus *b, int i, unsigned *val) {
 }
 
 #if NEED_BROADCAST
-int
-coro_bus_try_broadcast(struct coro_bus *b, unsigned x) {
+int coro_bus_try_broadcast(struct coro_bus *b, unsigned x) {
     int cnum = 0;
     for (int i = 0; i < b->count; i++)
         if (b->chs[i])
@@ -253,8 +231,7 @@ coro_bus_try_broadcast(struct coro_bus *b, unsigned x) {
     }
     for (int i = 0; i < b->count; i++) {
         struct channel *c = b->chs[i];
-        if (!c)
-            continue;
+        if (!c) continue;
         if (c->vec.sz >= c->limit) {
             gerr = CORO_BUS_ERR_WOULD_BLOCK;
             return -1;
@@ -262,16 +239,14 @@ coro_bus_try_broadcast(struct coro_bus *b, unsigned x) {
     }
     for (int i = 0; i < b->count; i++) {
         struct channel *c = b->chs[i];
-        if (!c)
-            continue;
+        if (!c) continue;
         dv_push(&c->vec, x);
         wq_wakeup_one(&c->receivers);
     }
     return 0;
 }
 
-int
-coro_bus_broadcast(struct coro_bus *b, unsigned x) {
+int coro_bus_broadcast(struct coro_bus *b, unsigned x) {
     while (1) {
         int cnum = 0;
         for (int i = 0; i < b->count; i++)
@@ -290,8 +265,7 @@ coro_bus_broadcast(struct coro_bus *b, unsigned x) {
         if (!full) {
             for (int i = 0; i < b->count; i++) {
                 struct channel *c = b->chs[i];
-                if (!c)
-                    continue;
+                if (!c) continue;
                 dv_push(&c->vec, x);
                 wq_wakeup_one(&c->receivers);
             }
@@ -317,8 +291,7 @@ coro_bus_broadcast(struct coro_bus *b, unsigned x) {
 #endif
 
 #if NEED_BATCH
-static int
-try_send_v_impl(struct channel *c, const unsigned *arr, unsigned n) {
+static int try_send_v_impl(struct channel *c, const unsigned *arr, unsigned n) {
     size_t freec = c->limit - c->vec.sz;
     if (!freec) {
         gerr = CORO_BUS_ERR_WOULD_BLOCK;
@@ -330,15 +303,13 @@ try_send_v_impl(struct channel *c, const unsigned *arr, unsigned n) {
     return r;
 }
 
-int
-coro_bus_try_send_v(struct coro_bus *b, int i, const unsigned *arr, unsigned n) {
+int coro_bus_try_send_v(struct coro_bus *b, int i, const unsigned *arr, unsigned n) {
     struct channel *c = bus_get(b, i);
     if (!c) return -1;
     return try_send_v_impl(c, arr, n);
 }
 
-int
-coro_bus_send_v(struct coro_bus *b, int i, const unsigned *arr, unsigned n) {
+int coro_bus_send_v(struct coro_bus *b, int i, const unsigned *arr, unsigned n) {
     while (1) {
         struct channel *c = bus_get(b, i);
         if (!c) return -1;
@@ -355,8 +326,7 @@ coro_bus_send_v(struct coro_bus *b, int i, const unsigned *arr, unsigned n) {
     }
 }
 
-static int
-try_recv_v_impl(struct channel *c, unsigned *arr, unsigned cap) {
+static int try_recv_v_impl(struct channel *c, unsigned *arr, unsigned cap) {
     if (!c->vec.sz) {
         gerr = CORO_BUS_ERR_WOULD_BLOCK;
         return -1;
@@ -367,15 +337,13 @@ try_recv_v_impl(struct channel *c, unsigned *arr, unsigned cap) {
     return got;
 }
 
-int
-coro_bus_try_recv_v(struct coro_bus *b, int i, unsigned *arr, unsigned cap) {
+int coro_bus_try_recv_v(struct coro_bus *b, int i, unsigned *arr, unsigned cap) {
     struct channel *c = bus_get(b, i);
     if (!c) return -1;
     return try_recv_v_impl(c, arr, cap);
 }
 
-int
-coro_bus_recv_v(struct coro_bus *b, int i, unsigned *arr, unsigned cap) {
+int coro_bus_recv_v(struct coro_bus *b, int i, unsigned *arr, unsigned cap) {
     while (1) {
         struct channel *c = bus_get(b, i);
         if (!c) return -1;

@@ -18,16 +18,14 @@ struct rlist {
 #define rlist_entry(link, type, member) \
     ((type *)((char *)(link) - offsetof(type, member)))
 
-static inline void
-rlist_insert(struct rlist *prev, struct rlist *next, struct rlist *item) {
+static inline void rlist_insert(struct rlist *prev, struct rlist *next, struct rlist *item) {
     item->next = next;
     item->prev = prev;
     prev->next = item;
     next->prev = item;
 }
 
-static inline void
-rlist_del(struct rlist *item) {
+static inline void rlist_del(struct rlist *item) {
     struct rlist *prev = item->prev;
     struct rlist *next = item->next;
     prev->next = next;
@@ -56,10 +54,8 @@ rlist_del(struct rlist *item) {
 #define rlist_add_entry(head, item, member) \
     rlist_insert((head), (head)->next, &(item)->member)
 
-static inline void
-rlist_splice_tail(struct rlist *dst, struct rlist *src) {
-    if (rlist_empty(src))
-        return;
+static inline void rlist_splice_tail(struct rlist *dst, struct rlist *src) {
+    if (rlist_empty(src)) return;
     struct rlist *dst_last = dst->prev;
     struct rlist *src_first = src->next;
     struct rlist *src_last = src->prev;
@@ -70,5 +66,4 @@ rlist_splice_tail(struct rlist *dst, struct rlist *src) {
     rlist_create(src);
 }
 
-#endif /* RLIST_H */
-
+#endif

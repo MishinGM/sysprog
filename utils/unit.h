@@ -1,17 +1,36 @@
-#ifndef UNIT_H
-#define UNIT_H
-
-#include <stdbool.h>
+#pragma once
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
-extern const char *current_test_name;
+#define unit_test_start() \
+	printf("\t-------- %s started --------\n", __func__)
 
-void unit_test_start(void);
-void unit_test_finish(void);
-void unit_msg(const char *msg);
-void unit_check(bool cond, const char *format, ...);
-void unit_assert(bool cond);
+#define unit_test_finish() \
+	printf("\t-------- %s done --------\n", __func__)
 
-int doCmdMaxPoints(int argc, char **argv);
+#define unit_fail_if(cond) do { \
+	if (cond) { \
+		printf("Test failed, line %d\n", __LINE__); \
+		exit(-1); \
+	} \
+} while (0)
 
-#endif /* UNIT_H */
+#define unit_assert(cond) unit_fail_if(!(cond))
+
+#define unit_msg(...) do { \
+	printf("# "); \
+	printf(__VA_ARGS__); \
+	printf("\n"); \
+} while (0)
+
+#define unit_check(cond, msg) do { \
+	if (!(cond)) { \
+		printf("not ok - %s\n", (msg)); \
+		unit_fail_if(true); \
+	} else { \
+		printf("ok - %s\n", (msg)); \
+	} \
+} while(0)
+
+bool doCmdMaxPoints(int argc, char **argv);

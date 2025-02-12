@@ -9,7 +9,6 @@
 #include <errno.h>
 #include <string.h>
 
-
 #ifndef CORO_F_DEFINED
 typedef void *(*coro_f)(void *);
 #define CORO_F_DEFINED
@@ -20,13 +19,11 @@ typedef void *(*coro_f)(void *);
     exit(-1); \
 } while(0)
 
-
 enum coro_state {
     CORO_STATE_RUNNING,
     CORO_STATE_SUSPENDED,
     CORO_STATE_FINISHED,
 };
-
 
 struct coro {
     enum coro_state state;
@@ -36,8 +33,8 @@ struct coro {
     coro_f func;
     sigjmp_buf ctx;
     struct coro *joiner;
-    struct rlist link;        
-    struct rlist active_link;  
+    struct rlist link;
+    struct rlist active_link;
 };
 
 struct coro_engine {
@@ -46,14 +43,12 @@ struct coro_engine {
     struct rlist coros_running_now;
     struct rlist coros_running_next;
     struct rlist coros_pool;
-    struct rlist coros_active;  
+    struct rlist coros_active;
     size_t coro_count;
     sigjmp_buf start_point;
 };
 
-
-static void
-coro_engine_create(struct coro_engine *e) {
+static void coro_engine_create(struct coro_engine *e) {
     memset(e, 0, sizeof(*e));
     rlist_create(&e->sched.link);
     rlist_create(&e->coros_running_now);
@@ -62,9 +57,7 @@ coro_engine_create(struct coro_engine *e) {
     rlist_create(&e->coros_active);
 }
 
-
-static void
-coro_engine_resume_next(struct coro_engine *e) {
+static void coro_engine_resume_next(struct coro_engine *e) {
     if (rlist_empty(&e->coros_running_now))
         return;
     struct coro *to = rlist_shift_entry(&e->coros_running_now, struct coro, link);
@@ -79,9 +72,7 @@ coro_engine_resume_next(struct coro_engine *e) {
     e->this = from;
 }
 
-
-static void
-coro_engine_suspend(struct coro_engine *e) {
+static void coro_engine_suspend(struct coro_engine *e) {
     struct coro *c = e->this;
     if (!c) {
         printf("Error: no coroutines\n");
@@ -91,9 +82,7 @@ coro_engine_suspend(struct coro_engine *e) {
     coro_engine_resume_next(e);
 }
 
-
-static void
-coro_engine_yield(struct coro_engine *e) {
+static void coro_engine_yield(struct coro_engine *e) {
     struct coro *c = e->this;
     if (!c) {
         printf("Error: no coroutines\n");
@@ -103,9 +92,7 @@ coro_engine_yield(struct coro_engine *e) {
     coro_engine_resume_next(e);
 }
 
-
-static void
-coro_engine_wakeup(struct coro_engine *e, struct coro *c) {
+static void coro_engine_wakeup(struct coro_engine *e, struct coro *c) {
     if (c->state == CORO_STATE_RUNNING)
         return;
     if (c->state == CORO_STATE_FINISHED)
@@ -114,13 +101,10 @@ coro_engine_wakeup(struct coro_engine *e, struct coro *c) {
     rlist_add_tail_entry(&e->coros_running_next, c, link);
 }
 
-
-static void
-coro_engine_run(struct coro_engine *e) {
+static void coro_engine_run(struct coro_engine *e) {
     while (true) {
         rlist_splice_tail(&e->coros_running_now, &e->coros_running_next);
         if (rlist_empty(&e->coros_running_now)) {
-          
             if (!rlist_empty(&e->coros_active)) {
                 struct rlist *p = e->coros_active.next;
                 bool woke = false;
@@ -144,8 +128,7 @@ coro_engine_run(struct coro_engine *e) {
     }
 }
 
-static void
-coro_engine_destroy(struct coro_engine *e) {
+static void coro_engine_destroy(struct coro_engine *e) {
     while (!rlist_empty(&e->coros_pool)) {
         struct coro *c = rlist_shift_entry(&e->coros_pool, struct coro, link);
         free(c->stack);
@@ -154,12 +137,9 @@ coro_engine_destroy(struct coro_engine *e) {
     }
 }
 
-
 static __thread struct coro_engine *g_eng_new = NULL;
 
-
-static void
-coro_body(int signum) {
+static void coro_body(int signum) {
     (void)signum;
     struct coro_engine *eng = g_eng_new;
     g_eng_new = NULL;
@@ -178,8 +158,7 @@ coro_body(int signum) {
     }
 }
 
-static struct coro *
-coro_engine_spawn_new(struct coro_engine *eng, coro_f f, void *arg) {
+static struct coro *coro_engine_spawn_new(struct coro_engine *eng, coro_f f, void *arg) {
     struct coro *c = malloc(sizeof(*c));
     c->state = CORO_STATE_RUNNING;
     c->ret = NULL;
@@ -188,9 +167,7 @@ coro_engine_spawn_new(struct coro_engine *eng, coro_f f, void *arg) {
     c->joiner = NULL;
     rlist_create(&c->link);
     rlist_create(&c->active_link);
-   
     rlist_add_tail_entry(&eng->coros_active, c, active_link);
-    
     int st_sz = 1024 * 1024;
     if (st_sz < SIGSTKSZ)
         st_sz = SIGSTKSZ;
@@ -241,13 +218,10 @@ coro_engine_spawn_new(struct coro_engine *eng, coro_f f, void *arg) {
     return c;
 }
 
-
-static struct coro *
-coro_engine_spawn(struct coro_engine *eng, coro_f f, void *arg) {
+static struct coro *coro_engine_spawn(struct coro_engine *eng, coro_f f, void *arg) {
     if (rlist_empty(&eng->coros_pool))
         return coro_engine_spawn_new(eng, f, arg);
     struct coro *c = rlist_shift_entry(&eng->coros_pool, struct coro, link);
-
     rlist_add_tail_entry(&eng->coros_active, c, active_link);
     c->state = CORO_STATE_RUNNING;
     c->func = f;
@@ -256,8 +230,7 @@ coro_engine_spawn(struct coro_engine *eng, coro_f f, void *arg) {
     return c;
 }
 
-static void *
-coro_engine_join(struct coro_engine *eng, struct coro *c) {
+static void *coro_engine_join(struct coro_engine *eng, struct coro *c) {
     if (!eng->this) {
         eng->this = &eng->sched;
     }
@@ -268,57 +241,45 @@ coro_engine_join(struct coro_engine *eng, struct coro *c) {
     }
     void *r = c->ret;
     c->ret = NULL;
-  
     rlist_del_entry(c, active_link);
     rlist_add_entry(&eng->coros_pool, c, link);
     return r;
 }
 
-
 static struct coro_engine g_eng;
 
-
-void
-coro_sched_init(void) {
+void coro_sched_init(void) {
     coro_engine_create(&g_eng);
 }
 
-void
-coro_sched_run(void) {
+void coro_sched_run(void) {
     coro_engine_run(&g_eng);
 }
 
-void
-coro_sched_destroy(void) {
+void coro_sched_destroy(void) {
     coro_engine_destroy(&g_eng);
 }
 
-struct coro *
-coro_this(void) {
+struct coro *coro_this(void) {
     return g_eng.this;
 }
 
-struct coro *
-coro_new(coro_f func, void *arg) {
+struct coro *coro_new(coro_f func, void *arg) {
     return coro_engine_spawn(&g_eng, func, arg);
 }
 
-void *
-coro_join(struct coro *c) {
+void *coro_join(struct coro *c) {
     return coro_engine_join(&g_eng, c);
 }
 
-void
-coro_suspend(void) {
+void coro_suspend(void) {
     coro_engine_suspend(&g_eng);
 }
 
-void
-coro_yield(void) {
+void coro_yield(void) {
     coro_engine_yield(&g_eng);
 }
 
-void
-coro_wakeup(struct coro *c) {
+void coro_wakeup(struct coro *c) {
     coro_engine_wakeup(&g_eng, c);
 }
