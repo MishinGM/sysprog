@@ -12,6 +12,44 @@
 #define ONEW 0
 #define APP  1
 
+static int xp(struct expr **cmds, int n, char *of, int ot, int bg);
+
+static int exec_line(struct command_line *cl) {
+    int ret = 0;
+    struct expr *e = cl->head;
+    while (e) {
+        int cnt = 0, cap = 4;
+        struct expr **arr = malloc(cap * sizeof(struct expr*));
+        while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE)) {
+            if (e->type == EXPR_TYPE_COMMAND) {
+                if (cnt >= cap) {
+                    cap *= 2;
+                    arr = realloc(arr, cap * sizeof(struct expr*));
+                }
+                arr[cnt++] = e;
+            }
+            e = e->next;
+        }
+        ret = xp(arr, cnt, cl->out_file,
+                 (cl->out_type == OUTPUT_TYPE_FILE_NEW) ? ONEW : APP,
+                 cl->is_background);
+        free(arr);
+
+        if (e && (e->type == EXPR_TYPE_AND || e->type == EXPR_TYPE_OR)) {
+            int op = e->type;
+            e = e->next;
+            if (op == EXPR_TYPE_AND && ret != 0) {
+                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+                    e = e->next;
+            } else if (op == EXPR_TYPE_OR && ret == 0) {
+                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+                    e = e->next;
+            }
+        }
+    }
+    return ret;
+}
+
 static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
     if (n == 1) {
         char *c = cmds[0]->cmd.exe;
@@ -29,6 +67,7 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
     int i, ret = 0;
     int pfd[2], prev = -1;
     pid_t *pids = malloc(n * sizeof(pid_t));
+
     for (i = 0; i < n; i++) {
         if (i < n - 1) {
             if (pipe(pfd) < 0) {
@@ -56,21 +95,22 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                     : open(of, O_WRONLY | O_CREAT | O_APPEND, 0644);
                 if (fl < 0) {
                     perror("open");
-                    exit(1);
+                    _exit(1);
                 }
                 dup2(fl, STDOUT_FILENO);
                 close(fl);
             }
-            int total_args = cmds[i]->cmd.arg_count + 2;
-            char **argv = malloc(sizeof(char*) * total_args);
+            uint32_t arg_count = cmds[i]->cmd.arg_count;
+            char **argv = malloc(sizeof(char*) * (arg_count + 2));
             argv[0] = cmds[i]->cmd.exe;
-            for (uint32_t j = 0; j < cmds[i]->cmd.arg_count; j++) {
+            for (uint32_t j = 0; j < arg_count; j++) {
                 argv[j + 1] = cmds[i]->cmd.args[j];
             }
-            argv[cmds[i]->cmd.arg_count + 1] = NULL;
+            argv[arg_count + 1] = NULL;
+
             if (!strcmp(argv[0], "exit")) {
                 int ec = 0;
-                if (cmds[i]->cmd.arg_count > 0) ec = atoi(argv[1]);
+                if (arg_count > 0) ec = atoi(argv[1]);
                 _exit(ec);
             }
             execvp(argv[0], argv);
@@ -85,53 +125,22 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             }
         }
     }
+
     if (!bg) {
         for (i = 0; i < n; i++) {
             int st;
             waitpid(pids[i], &st, 0);
             if (i == n - 1) ret = WEXITSTATUS(st);
         }
+        free(pids);
+        return ret;
+    } else {
+        free(pids);
+        return 0;
     }
-    free(pids);
-    return ret;
-}
-
-static int exec_line(struct command_line *cl) {
-    int ret = 0;
-    struct expr *e = cl->head;
-    while (e) {
-        int cnt = 0, cap = 4;
-        struct expr **arr = malloc(cap * sizeof(struct expr*));
-        while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE)) {
-            if (e->type == EXPR_TYPE_COMMAND) {
-                if (cnt >= cap) {
-                    cap *= 2;
-                    arr = realloc(arr, cap * sizeof(struct expr*));
-                }
-                arr[cnt++] = e;
-            }
-            e = e->next;
-        }
-        ret = xp(arr, cnt, cl->out_file,
-                 (cl->out_type == OUTPUT_TYPE_FILE_NEW) ? ONEW : APP,
-                 cl->is_background);
-        free(arr);
-        if (e && (e->type == EXPR_TYPE_AND || e->type == EXPR_TYPE_OR)) {
-            int op = e->type;
-            e = e->next;
-            if (op == 1 && ret != 0)
-                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == 2))
-                    e = e->next;
-            else if (op == 2 && ret == 0)
-                while (e && (e->type == 0 || e->type == 2))
-                    e = e->next;
-        }
-    }
-    return ret;
 }
 
 int main(void) {
-    signal(SIGCHLD, SIG_IGN);
     struct parser *p = parser_new();
     char buf[1024];
     int r;
@@ -140,13 +149,16 @@ int main(void) {
         struct command_line *cl = NULL;
         while (1) {
             enum parser_error err = parser_pop_next(p, &cl);
-            if (err == 0 && cl == NULL) break;
-            if (err != 0) {
+            if (err == PARSER_ERR_NONE && cl == NULL) break;
+            if (err != PARSER_ERR_NONE) {
                 fprintf(stderr, "Ошибка парсера: %d\n", (int)err);
                 continue;
             }
-            exec_line(cl);
+            int code = exec_line(cl);
             command_line_delete(cl);
+            if (code != 0) {
+                ;
+            }
         }
     }
     parser_delete(p);
