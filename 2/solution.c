@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdint.h>
 
 #define ONEW 0
 #define APP  1
@@ -25,7 +26,8 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             exit(ec);
         }
     }
-    int i, ret = 0, pfd[2], prev = -1;
+    int i, ret = 0;
+    int pfd[2], prev = -1;
     pid_t *pids = malloc(n * sizeof(pid_t));
     for (i = 0; i < n; i++) {
         if (i < n - 1) {
@@ -50,8 +52,8 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 close(pfd[1]);
             } else if (of) {
                 int fl = (ot == ONEW)
-                         ? open(of, O_WRONLY | O_CREAT | O_TRUNC, 0644)
-                         : open(of, O_WRONLY | O_CREAT | O_APPEND, 0644);
+                    ? open(of, O_WRONLY | O_CREAT | O_TRUNC, 0644)
+                    : open(of, O_WRONLY | O_CREAT | O_APPEND, 0644);
                 if (fl < 0) {
                     perror("open");
                     exit(1);
@@ -62,8 +64,9 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             int total_args = cmds[i]->cmd.arg_count + 2;
             char **argv = malloc(sizeof(char*) * total_args);
             argv[0] = cmds[i]->cmd.exe;
-            for (int j = 0; j < cmds[i]->cmd.arg_count; j++)
+            for (uint32_t j = 0; j < cmds[i]->cmd.arg_count; j++) {
                 argv[j + 1] = cmds[i]->cmd.args[j];
+            }
             argv[cmds[i]->cmd.arg_count + 1] = NULL;
             if (!strcmp(argv[0], "exit")) {
                 int ec = 0;
@@ -116,11 +119,11 @@ static int exec_line(struct command_line *cl) {
         if (e && (e->type == EXPR_TYPE_AND || e->type == EXPR_TYPE_OR)) {
             int op = e->type;
             e = e->next;
-            if (op == EXPR_TYPE_AND && ret != 0)
-                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+            if (op == 1 && ret != 0)
+                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == 2))
                     e = e->next;
-            else if (op == EXPR_TYPE_OR && ret == 0)
-                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+            else if (op == 2 && ret == 0)
+                while (e && (e->type == 0 || e->type == 2))
                     e = e->next;
         }
     }
@@ -137,8 +140,8 @@ int main(void) {
         struct command_line *cl = NULL;
         while (1) {
             enum parser_error err = parser_pop_next(p, &cl);
-            if (err == PARSER_ERR_NONE && cl == NULL) break;
-            if (err != PARSER_ERR_NONE) {
+            if (err == 0 && cl == NULL) break;
+            if (err != 0) {
                 fprintf(stderr, "Ошибка парсера: %d\n", (int)err);
                 continue;
             }
