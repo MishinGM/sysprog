@@ -55,7 +55,8 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
     if (n == 1) {
         char *c = cmds[0]->cmd.exe;
         if (!strcmp(c, "cd")) {
-            char *d = (cmds[0]->cmd.arg_count > 0) ? cmds[0]->cmd.args[0] : getenv("HOME");
+            char *d = (cmds[0]->cmd.arg_count > 0)
+                ? cmds[0]->cmd.args[0] : getenv("HOME");
             if (chdir(d) != 0) {
                 perror("cd");
             }
@@ -118,16 +119,13 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             if (!strcmp(argv[0], "exit")) {
                 int ec = 0;
                 if (arg_count > 0) ec = atoi(argv[1] ? argv[1] : "0");
-                if (i == n - 1 && !of) {
-                    exit(ec);
-                } else {
-                    _exit(ec);
-                }
+                _exit(ec);
             }
 
             execvp(argv[0], argv);
             perror(argv[0]);
             _exit(1);
+
         } else {
             pids[i] = pid;
             if (prev != -1) close(prev);
@@ -152,7 +150,7 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
 }
 
 int main(void) {
-
+    int last_status = 0;
     struct parser *p = parser_new();
     char buf[1024];
     int r;
@@ -166,10 +164,11 @@ int main(void) {
                 fprintf(stderr, "Ошибка парсера: %d\n", (int)err);
                 continue;
             }
-            exec_line(cl);
+            last_status = exec_line(cl);
+
             command_line_delete(cl);
         }
     }
     parser_delete(p);
-    return 0;
+    return last_status;
 }
