@@ -25,8 +25,7 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             exit(ec);
         }
     }
-    int i, ret = 0;
-    int pfd[2], prev = -1;
+    int i, ret = 0, pfd[2], prev = -1;
     pid_t *pids = malloc(n * sizeof(pid_t));
     for (i = 0; i < n; i++) {
         if (i < n - 1) {
@@ -50,8 +49,9 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 dup2(pfd[1], STDOUT_FILENO);
                 close(pfd[1]);
             } else if (of) {
-                int fl = (ot == ONEW) ? open(of, O_WRONLY | O_CREAT | O_TRUNC, 0644)
-                                      : open(of, O_WRONLY | O_CREAT | O_APPEND, 0644);
+                int fl = (ot == ONEW)
+                         ? open(of, O_WRONLY | O_CREAT | O_TRUNC, 0644)
+                         : open(of, O_WRONLY | O_CREAT | O_APPEND, 0644);
                 if (fl < 0) {
                     perror("open");
                     exit(1);
@@ -59,13 +59,19 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 dup2(fl, STDOUT_FILENO);
                 close(fl);
             }
-            if (!strcmp(cmds[i]->cmd.exe, "exit")) {
+            int total_args = cmds[i]->cmd.arg_count + 2;
+            char **argv = malloc(sizeof(char*) * total_args);
+            argv[0] = cmds[i]->cmd.exe;
+            for (int j = 0; j < cmds[i]->cmd.arg_count; j++)
+                argv[j + 1] = cmds[i]->cmd.args[j];
+            argv[cmds[i]->cmd.arg_count + 1] = NULL;
+            if (!strcmp(argv[0], "exit")) {
                 int ec = 0;
-                if (cmds[i]->cmd.arg_count > 0) ec = atoi(cmds[i]->cmd.args[0]);
+                if (cmds[i]->cmd.arg_count > 0) ec = atoi(argv[1]);
                 _exit(ec);
             }
-            execvp(cmds[i]->cmd.exe, (char * const *)cmds[i]->cmd.args);
-            perror(cmds[i]->cmd.exe);
+            execvp(argv[0], argv);
+            perror(argv[0]);
             _exit(1);
         } else {
             pids[i] = pid;
@@ -110,11 +116,12 @@ static int exec_line(struct command_line *cl) {
         if (e && (e->type == EXPR_TYPE_AND || e->type == EXPR_TYPE_OR)) {
             int op = e->type;
             e = e->next;
-            if (op == EXPR_TYPE_AND && ret != 0) {
-                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE)) e = e->next;
-            } else if (op == EXPR_TYPE_OR && ret == 0) {
-                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE)) e = e->next;
-            }
+            if (op == EXPR_TYPE_AND && ret != 0)
+                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+                    e = e->next;
+            else if (op == EXPR_TYPE_OR && ret == 0)
+                while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE))
+                    e = e->next;
         }
     }
     return ret;
