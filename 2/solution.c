@@ -119,4 +119,57 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 int ec = 0;
                 if (arg_count > 0) ec = atoi(argv[1] ? argv[1] : "0");
                 if (i == n - 1 && !of) {
-                    exit(ec
+                    exit(ec);
+                } else {
+                    _exit(ec);
+                }
+            }
+
+            execvp(argv[0], argv);
+            perror(argv[0]);
+            _exit(1);
+        } else {
+            pids[i] = pid;
+            if (prev != -1) close(prev);
+            if (i < n - 1) {
+                close(pfd[1]);
+                prev = pfd[0];
+            }
+        }
+    }
+
+    if (!bg) {
+        for (i = 0; i < n; i++) {
+            int st;
+            waitpid(pids[i], &st, 0);
+            if (i == n - 1) {
+                ret = WEXITSTATUS(st);
+            }
+        }
+    }
+    free(pids);
+    return ret;
+}
+
+int main(void) {
+
+    struct parser *p = parser_new();
+    char buf[1024];
+    int r;
+    while ((r = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
+        parser_feed(p, buf, r);
+        struct command_line *cl = NULL;
+        while (1) {
+            enum parser_error err = parser_pop_next(p, &cl);
+            if (err == PARSER_ERR_NONE && cl == NULL) break;
+            if (err != PARSER_ERR_NONE) {
+                fprintf(stderr, "Ошибка парсера: %d\n", (int)err);
+                continue;
+            }
+            exec_line(cl);
+            command_line_delete(cl);
+        }
+    }
+    parser_delete(p);
+    return 0;
+}
