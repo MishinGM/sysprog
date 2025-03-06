@@ -18,13 +18,14 @@ static int exec_line(struct command_line *cl) {
     int ret = 0;
     struct expr *e = cl->head;
     while (e) {
-        int cnt = 0, cap = 4;
-        struct expr **arr = malloc(cap * sizeof(struct expr*));
+        int cnt = 0;
+        int cap = 4;
+        struct expr **arr = malloc(cap * sizeof(struct expr *));
         while (e && (e->type == EXPR_TYPE_COMMAND || e->type == EXPR_TYPE_PIPE)) {
             if (e->type == EXPR_TYPE_COMMAND) {
                 if (cnt >= cap) {
                     cap *= 2;
-                    arr = realloc(arr, cap * sizeof(struct expr*));
+                    arr = realloc(arr, cap * sizeof(struct expr *));
                 }
                 arr[cnt++] = e;
             }
@@ -54,8 +55,10 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
     if (n == 1) {
         char *c = cmds[0]->cmd.exe;
         if (!strcmp(c, "cd")) {
-            char *d = cmds[0]->cmd.arg_count > 0 ? cmds[0]->cmd.args[0] : getenv("HOME");
-            if (chdir(d) != 0) perror("cd");
+            char *d = (cmds[0]->cmd.arg_count > 0) ? cmds[0]->cmd.args[0] : getenv("HOME");
+            if (chdir(d) != 0) {
+                perror("cd");
+            }
             return 0;
         }
         if (!strcmp(c, "exit") && !of) {
@@ -64,6 +67,7 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
             exit(ec);
         }
     }
+
     int i, ret = 0;
     int pfd[2], prev = -1;
     pid_t *pids = malloc(n * sizeof(pid_t));
@@ -75,11 +79,13 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 exit(1);
             }
         }
+
         pid_t pid = fork();
         if (pid < 0) {
             perror("fork");
             exit(1);
         }
+
         if (pid == 0) {
             if (prev != -1) {
                 dup2(prev, STDIN_FILENO);
@@ -100,8 +106,9 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
                 dup2(fl, STDOUT_FILENO);
                 close(fl);
             }
+
             uint32_t arg_count = cmds[i]->cmd.arg_count;
-            char **argv = malloc(sizeof(char*) * (arg_count + 2));
+            char **argv = malloc(sizeof(char *) * (arg_count + 2));
             argv[0] = cmds[i]->cmd.exe;
             for (uint32_t j = 0; j < arg_count; j++) {
                 argv[j + 1] = cmds[i]->cmd.args[j];
@@ -110,57 +117,6 @@ static int xp(struct expr **cmds, int n, char *of, int ot, int bg) {
 
             if (!strcmp(argv[0], "exit")) {
                 int ec = 0;
-                if (arg_count > 0) ec = atoi(argv[1]);
-                _exit(ec);
-            }
-            execvp(argv[0], argv);
-            perror(argv[0]);
-            _exit(1);
-        } else {
-            pids[i] = pid;
-            if (prev != -1) close(prev);
-            if (i < n - 1) {
-                close(pfd[1]);
-                prev = pfd[0];
-            }
-        }
-    }
-
-    if (!bg) {
-        for (i = 0; i < n; i++) {
-            int st;
-            waitpid(pids[i], &st, 0);
-            if (i == n - 1) ret = WEXITSTATUS(st);
-        }
-        free(pids);
-        return ret;
-    } else {
-        free(pids);
-        return 0;
-    }
-}
-
-int main(void) {
-    struct parser *p = parser_new();
-    char buf[1024];
-    int r;
-    while ((r = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
-        parser_feed(p, buf, r);
-        struct command_line *cl = NULL;
-        while (1) {
-            enum parser_error err = parser_pop_next(p, &cl);
-            if (err == PARSER_ERR_NONE && cl == NULL) break;
-            if (err != PARSER_ERR_NONE) {
-                fprintf(stderr, "Ошибка парсера: %d\n", (int)err);
-                continue;
-            }
-            int code = exec_line(cl);
-            command_line_delete(cl);
-            if (code != 0) {
-                ;
-            }
-        }
-    }
-    parser_delete(p);
-    return 0;
-}
+                if (arg_count > 0) ec = atoi(argv[1] ? argv[1] : "0");
+                if (i == n - 1 && !of) {
+                    exit(ec
