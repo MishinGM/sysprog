@@ -1,14 +1,13 @@
-GCC_FLAGS = -Wextra -Werror -Wall -Wno-gnu-folding-constant
+CC = gcc
+CFLAGS = -Wall -Wextra -Werror -Wno-unused-function
+INCLUDES = -I ../utils
+SRCS = userfs.c test.c ../utils/unit.c
+TARGET = test
 
-all: test
+all: $(TARGET)
 
-test:
-	gcc $(GCC_FLAGS) userfs.c test.c ../utils/unit.c -I ../utils -o test
-
-# For automatic testing systems to be able to just build whatever was submitted
-# by a student.
-test_glob:
-	gcc $(GCC_FLAGS) *.c ../utils/unit.c -I ../utils -o test
+$(TARGET): $(SRCS)
+	$(CC) $(CFLAGS) $(SRCS) $(INCLUDES) -o $(TARGET)
 
 clean:
-	rm -f test
+	rm -f $(TARGET)
