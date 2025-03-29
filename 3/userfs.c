@@ -2,10 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { 
-    BLOCK_SIZE = 512, 
-    MAX_FILE_SIZE = 1024 * 1024 * 100, 
-    MAX_FDS = 2048
+enum {
+    BLOCK_SIZE = 512,
+    MAX_FILE_SIZE = 1024 * 1024 * 100
 };
 
 static enum ufs_error_code ufs_error_code = UFS_ERR_NO_ERR;
@@ -35,17 +34,18 @@ struct filedesc {
     size_t cur_offset;
 };
 
-static struct filedesc *fds[MAX_FDS];
-static struct file *file_list;
+static struct filedesc **fds = NULL;
+static size_t fds_size = 0;
+static struct file *file_list = NULL;
 
 static struct block *find_block_for_offset(struct file *f, size_t offset, int *off_in_block);
 
-static void set_error(enum ufs_error_code err) { 
-    ufs_error_code = err; 
+static void set_error(enum ufs_error_code err) {
+    ufs_error_code = err;
 }
 
-enum ufs_error_code ufs_errno(void) { 
-    return ufs_error_code; 
+enum ufs_error_code ufs_errno(void) {
+    return ufs_error_code;
 }
 
 static void remove_file_from_list(struct file *f) {
@@ -91,11 +91,11 @@ static struct block *alloc_block(struct file *f) {
 
 static struct block *get_block(struct file *f, size_t offset, int create, int *off_in_block) {
     (void)create;
-    return (offset < f->size) ? 
+    return (offset < f->size) ?
         find_block_for_offset(f, offset, off_in_block) :
         (f->last && ((size_t)f->last->occupied < BLOCK_SIZE) ?
-         ( *off_in_block = f->last->occupied, f->last ) :
-         ( *off_in_block = 0, alloc_block(f) ));
+         (*off_in_block = f->last->occupied, f->last) :
+         (*off_in_block = 0, alloc_block(f)));
 }
 
 static struct block *find_block_for_offset(struct file *f, size_t offset, int *off_in_block) {
@@ -116,6 +116,29 @@ static struct block *find_block_for_offset(struct file *f, size_t offset, int *o
     return 0;
 }
 
+static int allocate_fd_slot(struct filedesc *desc) {
+    if (!fds) {
+        fds_size = 16;
+        fds = calloc(fds_size, sizeof(*fds));
+        if (!fds) return -1;
+    }
+    for (size_t i = 0; i < fds_size; i++) {
+        if (fds[i] == NULL) {
+            fds[i] = desc;
+            return (int)i;
+        }
+    }
+    size_t old_size = fds_size;
+    fds_size *= 2;
+    struct filedesc **new_fds = realloc(fds, fds_size * sizeof(*fds));
+    if (!new_fds) return -1;
+    fds = new_fds;
+    for (size_t i = old_size; i < fds_size; i++)
+        fds[i] = NULL;
+    fds[old_size] = desc;
+    return (int)old_size;
+}
+
 int ufs_open(const char *filename, int flags) {
     struct file *ff = find_file(filename);
     if (!ff) {
@@ -132,25 +155,24 @@ int ufs_open(const char *filename, int flags) {
             file_list->prev = ff;
         file_list = ff;
     }
-    for (int i = 0; i < MAX_FDS; i++) {
-        if (!fds[i]) {
-            struct filedesc *desc = calloc(1, sizeof(*desc));
-            if (!desc) { set_error(UFS_ERR_NO_MEM); return -1; }
-            desc->f = ff;
-            desc->offset = 0;
-            desc->cur = NULL;
-            desc->cur_offset = 0;
-            fds[i] = desc;
-            ff->refs++;
-            return i;
-        }
+    struct filedesc *desc = calloc(1, sizeof(*desc));
+    if (!desc) { set_error(UFS_ERR_NO_MEM); return -1; }
+    desc->f = ff;
+    desc->offset = 0;
+    desc->cur = NULL;
+    desc->cur_offset = 0;
+    int fd = allocate_fd_slot(desc);
+    if (fd < 0) {
+        free(desc);
+        set_error(UFS_ERR_NO_MEM);
+        return -1;
     }
-    set_error(UFS_ERR_NO_MEM);
-    return -1;
+    ff->refs++;
+    return fd;
 }
 
 ssize_t ufs_write(int fd, const char *buf, size_t size) {
-    if (fd < 0 || fd >= MAX_FDS || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
+    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
     if (size == 0)
         return 0;
     struct filedesc *desc = fds[fd];
@@ -191,7 +213,7 @@ ssize_t ufs_write(int fd, const char *buf, size_t size) {
 }
 
 ssize_t ufs_read(int fd, char *buf, size_t size) {
-    if (fd < 0 || fd >= MAX_FDS || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
+    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
     if (size == 0)
         return 0;
     struct filedesc *desc = fds[fd];
@@ -203,15 +225,14 @@ ssize_t ufs_read(int fd, char *buf, size_t size) {
         int off = 0;
         struct block *b;
         if (desc->cur && desc->offset >= desc->cur_offset &&
-		    desc->offset < desc->cur_offset + (size_t)desc->cur->occupied) {
+            desc->offset < desc->cur_offset + (size_t)desc->cur->occupied) {
             b = desc->cur;
             off = (int)(desc->offset - desc->cur_offset);
         } else {
             b = find_block_for_offset(f, desc->offset, &off);
             size_t cum = 0;
-            for (struct block *tmp = f->first; tmp && tmp != b; tmp = tmp->next) {
+            for (struct block *tmp = f->first; tmp && tmp != b; tmp = tmp->next)
                 cum += (size_t)tmp->occupied;
-            }
             desc->cur = b;
             desc->cur_offset = cum;
         }
@@ -226,19 +247,19 @@ ssize_t ufs_read(int fd, char *buf, size_t size) {
         desc->offset += can;
         total += can;
         if (desc->cur && desc->offset >= desc->cur_offset + (size_t)desc->cur->occupied) {
+            desc->cur_offset += (size_t)desc->cur->occupied;
             desc->cur = desc->cur->next;
-            desc->cur_offset += (desc->cur ? (size_t)(desc->cur->prev ? desc->cur->prev->occupied : 0) : 0);
         }
     }
     return (ssize_t)total;
 }
 
 int ufs_close(int fd) {
-    if (fd < 0 || fd >= MAX_FDS || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
+    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
     struct filedesc *desc = fds[fd];
     struct file *f = desc->f;
     free(desc);
-    fds[fd] = 0;
+    fds[fd] = NULL;
     f->refs--;
     if (f->deleted && f->refs == 0) {
         if (f->prev || f->next || file_list == f)
@@ -260,8 +281,8 @@ int ufs_delete(const char *filename) {
 }
 
 void ufs_destroy(void) {
-    for (int i = 0; i < MAX_FDS; i++)
-        if (fds[i])
+    for (size_t i = 0; i < fds_size; i++)
+        if (fds && fds[i])
             ufs_close(i);
     while (file_list) {
         free_file(file_list);
