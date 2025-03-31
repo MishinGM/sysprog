@@ -91,11 +91,11 @@ static struct block *alloc_block(struct file *f) {
 
 static struct block *get_block(struct file *f, size_t offset, int create, int *off_in_block) {
     (void)create;
-    return (offset < f->size) ?
-        find_block_for_offset(f, offset, off_in_block) :
-        (f->last && ((size_t)f->last->occupied < BLOCK_SIZE) ?
-         (*off_in_block = f->last->occupied, f->last) :
-         (*off_in_block = 0, alloc_block(f)));
+    return (offset < f->size)
+        ? find_block_for_offset(f, offset, off_in_block)
+        : (f->last && (size_t)f->last->occupied < BLOCK_SIZE
+            ? (*off_in_block = f->last->occupied, f->last)
+            : (*off_in_block = 0, alloc_block(f)));
 }
 
 static struct block *find_block_for_offset(struct file *f, size_t offset, int *off_in_block) {
@@ -113,14 +113,15 @@ static struct block *find_block_for_offset(struct file *f, size_t offset, int *o
         b = b->next;
     }
     *off_in_block = 0;
-    return 0;
+    return NULL;
 }
 
 static int allocate_fd_slot(struct filedesc *desc) {
     if (!fds) {
         fds_size = 16;
         fds = calloc(fds_size, sizeof(*fds));
-        if (!fds) return -1;
+        if (!fds)
+            return -1;
     }
     for (size_t i = 0; i < fds_size; i++) {
         if (fds[i] == NULL) {
@@ -131,7 +132,8 @@ static int allocate_fd_slot(struct filedesc *desc) {
     size_t old_size = fds_size;
     fds_size *= 2;
     struct filedesc **new_fds = realloc(fds, fds_size * sizeof(*fds));
-    if (!new_fds) return -1;
+    if (!new_fds)
+        return -1;
     fds = new_fds;
     for (size_t i = old_size; i < fds_size; i++)
         fds[i] = NULL;
@@ -147,16 +149,26 @@ int ufs_open(const char *filename, int flags) {
             return -1;
         }
         ff = calloc(1, sizeof(*ff));
-        if (!ff) { set_error(UFS_ERR_NO_MEM); return -1; }
+        if (!ff) {
+            set_error(UFS_ERR_NO_MEM);
+            return -1;
+        }
         ff->name = strdup(filename);
-        if (!ff->name) { free(ff); set_error(UFS_ERR_NO_MEM); return -1; }
+        if (!ff->name) {
+            free(ff);
+            set_error(UFS_ERR_NO_MEM);
+            return -1;
+        }
         ff->next = file_list;
         if (file_list)
             file_list->prev = ff;
         file_list = ff;
     }
     struct filedesc *desc = calloc(1, sizeof(*desc));
-    if (!desc) { set_error(UFS_ERR_NO_MEM); return -1; }
+    if (!desc) {
+        set_error(UFS_ERR_NO_MEM);
+        return -1;
+    }
     desc->f = ff;
     desc->offset = 0;
     desc->cur = NULL;
@@ -172,12 +184,17 @@ int ufs_open(const char *filename, int flags) {
 }
 
 ssize_t ufs_write(int fd, const char *buf, size_t size) {
-    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
-    if (size == 0)
+    if ((size_t)fd >= fds_size || !fds[fd] || fd < 0) {
+        set_error(UFS_ERR_NO_FILE);
+        return -1;
+    }
+    if (!size)
         return 0;
     struct filedesc *desc = fds[fd];
     struct file *f = desc->f;
-    size_t new_size = (desc->offset + size > f->size) ? desc->offset + size : f->size;
+    size_t new_size = desc->offset + size > f->size
+        ? desc->offset + size
+        : f->size;
     if (new_size > MAX_FILE_SIZE) {
         set_error(UFS_ERR_NO_MEM);
         return -1;
@@ -188,19 +205,27 @@ ssize_t ufs_write(int fd, const char *buf, size_t size) {
         struct block *b;
         if (desc->offset < f->size) {
             b = find_block_for_offset(f, desc->offset, &off);
-            if (!b) { set_error(UFS_ERR_NO_MEM); return -1; }
+            if (!b) {
+                set_error(UFS_ERR_NO_MEM);
+                return -1;
+            }
         } else {
-            if (f->last && ((size_t)f->last->occupied < BLOCK_SIZE)) {
+            if (f->last && (size_t)f->last->occupied < BLOCK_SIZE) {
                 b = f->last;
                 off = f->last->occupied;
             } else {
                 b = alloc_block(f);
-                if (!b) { set_error(UFS_ERR_NO_MEM); return -1; }
+                if (!b) {
+                    set_error(UFS_ERR_NO_MEM);
+                    return -1;
+                }
                 off = 0;
             }
         }
         size_t space = BLOCK_SIZE - off;
-        size_t to_write = (size - written < space) ? size - written : space;
+        size_t to_write = size - written < space
+            ? size - written
+            : space;
         memcpy(b->data + off, buf + written, to_write);
         if ((size_t)off + to_write > (size_t)b->occupied)
             b->occupied = off + (int)to_write;
@@ -213,8 +238,11 @@ ssize_t ufs_write(int fd, const char *buf, size_t size) {
 }
 
 ssize_t ufs_read(int fd, char *buf, size_t size) {
-    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
-    if (size == 0)
+    if ((size_t)fd >= fds_size || !fds[fd] || fd < 0) {
+        set_error(UFS_ERR_NO_FILE);
+        return -1;
+    }
+    if (!size)
         return 0;
     struct filedesc *desc = fds[fd];
     struct file *f = desc->f;
@@ -224,8 +252,9 @@ ssize_t ufs_read(int fd, char *buf, size_t size) {
     while (total < size && desc->offset < f->size) {
         int off = 0;
         struct block *b;
-        if (desc->cur && desc->offset >= desc->cur_offset &&
-            desc->offset < desc->cur_offset + (size_t)desc->cur->occupied) {
+        if (desc->cur
+         && desc->offset >= desc->cur_offset
+         && desc->offset < desc->cur_offset + (size_t)desc->cur->occupied) {
             b = desc->cur;
             off = (int)(desc->offset - desc->cur_offset);
         } else {
@@ -242,11 +271,14 @@ ssize_t ufs_read(int fd, char *buf, size_t size) {
         if (desc->offset + avail > f->size)
             avail = f->size - desc->offset;
         size_t remain = size - total;
-        size_t can = (avail < remain) ? avail : remain;
+        size_t can = avail < remain
+            ? avail
+            : remain;
         memcpy(buf + total, b->data + off, can);
         desc->offset += can;
         total += can;
-        if (desc->cur && desc->offset >= desc->cur_offset + (size_t)desc->cur->occupied) {
+        if (desc->cur
+         && desc->offset >= desc->cur_offset + (size_t)desc->cur->occupied) {
             desc->cur_offset += (size_t)desc->cur->occupied;
             desc->cur = desc->cur->next;
         }
@@ -255,7 +287,10 @@ ssize_t ufs_read(int fd, char *buf, size_t size) {
 }
 
 int ufs_close(int fd) {
-    if (fd < 0 || (size_t)fd >= fds_size || !fds[fd]) { set_error(UFS_ERR_NO_FILE); return -1; }
+    if ((size_t)fd >= fds_size || !fds[fd] || fd < 0) {
+        set_error(UFS_ERR_NO_FILE);
+        return -1;
+    }
     struct filedesc *desc = fds[fd];
     struct file *f = desc->f;
     free(desc);
@@ -271,7 +306,10 @@ int ufs_close(int fd) {
 
 int ufs_delete(const char *filename) {
     struct file *f = find_file(filename);
-    if (!f) { set_error(UFS_ERR_NO_FILE); return -1; }
+    if (!f) {
+        set_error(UFS_ERR_NO_FILE);
+        return -1;
+    }
     f->deleted = 1;
     if (f->refs == 0) {
         remove_file_from_list(f);
@@ -281,12 +319,16 @@ int ufs_delete(const char *filename) {
 }
 
 void ufs_destroy(void) {
-    for (size_t i = 0; i < fds_size; i++)
+    for (size_t i = 0; i < fds_size; i++) {
         if (fds && fds[i])
             ufs_close(i);
+    }
     while (file_list) {
         free_file(file_list);
         file_list = file_list->next;
     }
+    free(fds);      
+    fds = NULL;      
+    fds_size = 0;   
     ufs_error_code = UFS_ERR_NO_ERR;
 }
