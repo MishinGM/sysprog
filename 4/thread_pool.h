@@ -25,9 +25,10 @@ struct thread_task;
 typedef void *(*thread_task_f)(void *);
 
 enum {
-	TPOOL_MAX_THREADS = 20,
-	TPOOL_MAX_TASKS = 100000,
+    TPOOL_MAX_THREADS = 20,
+    TPOOL_MAX_TASKS = 50,
 };
+
 
 enum thread_poool_errcode {
 	TPOOL_ERR_INVALID_ARGUMENT = 1,
