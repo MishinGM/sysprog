@@ -275,23 +275,32 @@ thread_task_timed_join(struct thread_task *t, double timeout, void **res)
 int
 thread_task_delete(struct thread_task *t)
 {
-	if (!t)
+	if (t == NULL)
 		return 0;
+
 	pthread_mutex_lock(&t->mutex);
-	if (t->state == TASK_QUEUED || t->state == TASK_RUNNING) {
+
+
+	if (t->state == TASK_QUEUED ||
+	    t->state == TASK_RUNNING ||
+	    (t->state == TASK_FINISHED && !t->joined && !t->detached)) {
 		pthread_mutex_unlock(&t->mutex);
 		return TPOOL_ERR_TASK_IN_POOL;
 	}
+
 	bool need_acc = (!t->joined && !t->detached &&
-			 t->state != TASK_NEW && t->pool);
+	                 t->state != TASK_NEW && t->pool);
 	struct thread_pool *p = t->pool;
+
 	pthread_mutex_unlock(&t->mutex);
+
 	if (need_acc) {
 		pthread_mutex_lock(&p->mutex);
 		p->tasks_total--;
 		pthread_cond_broadcast(&p->cond);
 		pthread_mutex_unlock(&p->mutex);
 	}
+
 	pthread_cond_destroy(&t->cond);
 	pthread_mutex_destroy(&t->mutex);
 	free(t);
