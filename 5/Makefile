@@ -12,14 +12,12 @@ exe: lib chat_client_exe.c chat_server_exe.c
 	gcc $(GCC_FLAGS) chat_server_exe.c chat.o chat_server.o -o server
 
 test: lib
-	gcc $(GCC_FLAGS) test.c chat.o chat_client.o chat_server.o -o test 	\
-		../utils/unit.c -I ../utils -lpthread
+	gcc $(GCC_FLAGS) test.c chat.o chat_client.o chat_server.o -o test \
+		../utils/unit.c ../utils/heap_help/heap_help.c -I ../utils -lpthread
 
-# For automatic testing systems to be able to just build whatever was submitted
-# by a student.
+
 test_glob:
-	gcc $(GCC_FLAGS) *.c ../utils/unit.c -I ../utils -lpthread -o test
+	gcc $(GCC_FLAGS) *.c ../utils/unit.c ../utils/heap_help/heap_help.c -I ../utils -lpthread -o test
 
 clean:
-	rm *.o
-	rm client server test
+	rm -f *.o client server test
