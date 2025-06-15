@@ -14,7 +14,7 @@
  * used by tests.
  */
 #define NEED_AUTHOR 1
-#define NEED_SERVER_FEED 1
+#define NEED_SERVER_FEED 0
 
 enum chat_errcode {
   CHAT_ERR_INVALID_ARGUMENT = 1,

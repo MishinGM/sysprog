@@ -369,9 +369,9 @@ int chat_server_update(struct chat_server *s, double timeout) {
     }
 
     if ((f->revents & POLLOUT) && p->olen > p->opos) {
-      peer_write(p);
-      prog = true;
-    }
+    prog |= peer_write(p); 
+}
+
 
     pp = &p->next;
     ++i;
