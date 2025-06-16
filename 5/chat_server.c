@@ -286,19 +286,6 @@ int chat_server_update(struct chat_server *s, double timeout) {
     return CHAT_ERR_NOT_STARTED;
 
   bool prog = false;
-  for (;;) {
-    int cs = accept(s->lsock, NULL, NULL);
-    if (cs < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK)
-        break;
-      return CHAT_ERR_SYS;
-    }
-    set_nonblock(cs);
-    struct peer *p = peer_new(cs);
-    p->next = s->peers;
-    s->peers = p;
-    prog = true;
-  }
 
   size_t npeer = 0;
   for (struct peer *p = s->peers; p; p = p->next)
@@ -346,6 +333,7 @@ int chat_server_update(struct chat_server *s, double timeout) {
       *pp = p->next;
       peer_del(p);
       prog = true;
+      ++i;
       continue;
     }
 
@@ -364,6 +352,7 @@ int chat_server_update(struct chat_server *s, double timeout) {
         *pp = p->next;
         peer_del(p);
         prog = true;
+        ++i;  
         continue;
       }
     }

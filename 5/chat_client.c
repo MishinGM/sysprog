@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <poll.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -118,9 +119,11 @@ static int split_addr(const char *addr, char **h, char **p) {
 int chat_client_connect(struct chat_client *c, const char *addr) {
   if (c->sock >= 0)
     return CHAT_ERR_ALREADY_STARTED;
+
   char *host = NULL, *port = NULL;
   if (split_addr(addr, &host, &port) != 0)
     return CHAT_ERR_NO_ADDR;
+
   struct addrinfo hints = {0}, *ai = NULL;
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_STREAM;
@@ -131,29 +134,57 @@ int chat_client_connect(struct chat_client *c, const char *addr) {
   }
   free(host);
   free(port);
+
   int s = -1;
   for (struct addrinfo *p = ai; p; p = p->ai_next) {
     s = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
     if (s < 0)
       continue;
+
     set_nonblock(s);
-    if (connect(s, p->ai_addr, p->ai_addrlen) == 0 || errno == EINPROGRESS)
+
+    int rc = connect(s, p->ai_addr, p->ai_addrlen);
+    if (rc == 0) {
       break;
-    close(s);
-    s = -1;
+    } else if (rc < 0 && errno == EINPROGRESS) {
+      struct pollfd pfd = {.fd = s, .events = POLLOUT};
+      int prc = poll(&pfd, 1, 5000);
+      if (prc <= 0) {
+        close(s);
+        s = -1;
+        continue;
+      }
+      int err = 0;
+      socklen_t elen = sizeof(err);
+      if (getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &elen) < 0 || err != 0) {
+        close(s);
+        s = -1;
+        continue;
+      }
+      break;
+    } else {
+      close(s);
+      s = -1;
+      continue;
+    }
   }
   freeaddrinfo(ai);
+
   if (s < 0)
     return CHAT_ERR_SYS;
+
   c->sock = s;
+
 #if NEED_AUTHOR
   size_t n = strlen(c->name);
   c->out_cap = n + 1;
   c->out = malloc(c->out_cap);
   memcpy(c->out, c->name, n);
-  c->out[n++] = '\n';
-  c->out_len = n;
+  c->out[n] = '\n';
+  c->out_len = n + 1;
+  c->out_pos = 0;
 #endif
+
   return 0;
 }
 
@@ -249,55 +280,52 @@ int chat_client_get_events(const struct chat_client *c) {
 int chat_client_get_descriptor(const struct chat_client *c) { return c->sock; }
 
 int chat_client_update(struct chat_client *c, double timeout) {
-    if (c->sock < 0)
-        return CHAT_ERR_NOT_STARTED;
+  if (c->sock < 0)
+    return CHAT_ERR_NOT_STARTED;
 
-    struct pollfd pfd = {
-        .fd = c->sock,
-        .events = POLLIN | (c->out_pos < c->out_len ? POLLOUT : 0),
-        .revents = 0
-    };
-    int ms = timeout < 0 ? -1 : (int)(timeout * 1000);
-    int rc = poll(&pfd, 1, ms);
-    if (rc < 0)
-        return CHAT_ERR_SYS;
-    if (rc == 0)
-        return CHAT_ERR_TIMEOUT;
+  struct pollfd pfd = {.fd = c->sock,
+                       .events =
+                           POLLIN | (c->out_pos < c->out_len ? POLLOUT : 0),
+                       .revents = 0};
+  int ms = timeout < 0 ? -1 : (int)(timeout * 1000);
+  int rc = poll(&pfd, 1, ms);
+  if (rc < 0)
+    return CHAT_ERR_SYS;
+  if (rc == 0)
+    return CHAT_ERR_TIMEOUT;
 
-    bool prog = false;
+  bool prog = false;
 
-   
-    if ((pfd.revents & POLLOUT) && c->out_pos < c->out_len) {
-        ssize_t n = send(c->sock, c->out + c->out_pos, c->out_len - c->out_pos, MSG_NOSIGNAL);
-        if (n > 0) {
-            c->out_pos += n;
-            if (c->out_pos == c->out_len)
-                c->out_pos = c->out_len = 0;
-            prog = true;
-        } else if (errno != EAGAIN && errno != EWOULDBLOCK)
-            return CHAT_ERR_SYS;
+  if ((pfd.revents & POLLOUT) && c->out_pos < c->out_len) {
+    ssize_t n = send(c->sock, c->out + c->out_pos, c->out_len - c->out_pos,
+                     MSG_NOSIGNAL);
+    if (n > 0) {
+      c->out_pos += n;
+      if (c->out_pos == c->out_len)
+        c->out_pos = c->out_len = 0;
+      prog = true;
+    } else if (errno != EAGAIN && errno != EWOULDBLOCK)
+      return CHAT_ERR_SYS;
+  }
+
+  if (pfd.revents & POLLIN) {
+    if (c->in_cap - c->in_len < 4096) {
+      c->in_cap = c->in_cap ? c->in_cap * 2 : 4096;
+      c->in = xrealloc(c->in, c->in_cap);
     }
+    ssize_t n = recv(c->sock, c->in + c->in_len, c->in_cap - c->in_len, 0);
+    if (n == 0)
+      return CHAT_ERR_SYS;
+    if (n > 0) {
+      c->in_len += n;
+      consume_in(c);
+      prog = true;
+    } else if (errno != EAGAIN && errno != EWOULDBLOCK)
+      return CHAT_ERR_SYS;
+  }
 
-  
-    if (pfd.revents & POLLIN) {
-        if (c->in_cap - c->in_len < 4096) {
-            c->in_cap = c->in_cap ? c->in_cap * 2 : 4096;
-            c->in = xrealloc(c->in, c->in_cap);
-        }
-        ssize_t n = recv(c->sock, c->in + c->in_len, c->in_cap - c->in_len, 0);
-        if (n == 0)
-            return CHAT_ERR_SYS; 
-        if (n > 0) {
-            c->in_len += n;
-            consume_in(c);
-            prog = true;
-        } else if (errno != EAGAIN && errno != EWOULDBLOCK)
-            return CHAT_ERR_SYS;
-    }
-
-    return prog ? 0 : CHAT_ERR_TIMEOUT;
+  return prog ? 0 : CHAT_ERR_TIMEOUT;
 }
-
 
 struct chat_message *chat_client_pop_next(struct chat_client *c) {
   return mq_pop(&c->hq, &c->tq);
